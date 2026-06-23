@@ -1,0 +1,1402 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Fawry SoftPOS — Technical & Security Documentation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+
+  <!-- Sidebar overlay for mobile -->
+  <div class="sidebar-overlay" id="sidebarOverlay"></div>
+
+  <!-- ════════════ SIDEBAR ════════════ -->
+  <aside class="sidebar" id="sidebar">
+    <div class="sidebar-header">
+      <span class="diamond">&#9670;</span>
+      <h2>Fawry SoftPOS</h2>
+      <p class="subtitle">Technical & Security Docs</p>
+    </div>
+    <nav class="nav">
+      <a href="#overview" class="nav-link active">1. Application Overview</a>
+      <a href="#architecture" class="nav-link">2. System Architecture</a>
+      <a href="#components" class="nav-link">3. Components</a>
+      <a href="#flow" class="nav-link">4. Payment Flow (Step-by-Step)</a>
+      <a href="#recovery" class="nav-link">5. Recovery Flow</a>
+      <a href="#modes" class="nav-link">6. Integration Modes</a>
+      <a href="#security" class="nav-link">7. Security Audit — All 29 Issues</a>
+      <a href="#setup" class="nav-link">8. Setup &amp; Configuration</a>
+      <a href="#files" class="nav-link">9. File Reference Map</a>
+    </nav>
+    <div class="sidebar-footer">
+      <p>Generated 2026-06-23</p>
+      <p>v2.0 — Clean Architecture + Hardening</p>
+    </div>
+  </aside>
+
+  <!-- ════════════ MAIN ════════════ -->
+  <main class="main" id="main">
+
+    <button class="menu-toggle" id="menuToggle">&#9776;</button>
+
+    <!-- ─────────── 1. OVERVIEW ─────────── -->
+    <section id="overview" class="section">
+      <h1>1. Application Overview</h1>
+      <p class="lead">
+        The <strong>Fawry SoftPOS Integration</strong> bridges an <strong>Odoo POS</strong> system
+        with a <strong>Fawry payment terminal</strong> running as a Flutter Android app.
+        When a cashier processes a payment in Odoo, the request flows over WebSocket to the
+        Flutter app on the merchant's phone, which communicates with the Fawry SDK and the
+        cardholder taps their card. The result returns to Odoo and the order is validated.
+      </p>
+
+      <div class="info-grid">
+        <div class="info-card">
+          <h3>Odoo POS (Frontend)</h3>
+          <p>JavaScript modules running in the cashier's browser. Handles order creation, payment dispatch, and receipt
+            printing.</p>
+        </div>
+        <div class="info-card">
+          <h3>Flutter App (Middleware)</h3>
+          <p>Android app running a background HTTP + WebSocket server. Receives payment requests from Odoo and forwards
+            them to the Fawry SDK.</p>
+        </div>
+        <div class="info-card">
+          <h3>Fawry SDK</h3>
+          <p>Native Android SDK embedded in the Flutter app. Handles NFC/tap card communication and communicates with
+            Fawry's payment servers.</p>
+        </div>
+        <div class="info-card">
+          <h3>Fawry Servers</h3>
+          <p>Processes the actual card transaction and returns a <code>FCRN</code> (Fawry Customer Reference Number) on
+            success.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── 2. ARCHITECTURE ─────────── -->
+    <section id="architecture" class="section">
+      <h1>2. System Architecture</h1>
+
+      <pre class="diagram">
+┌──────────────────────────────────────────────────────────────────────────┐
+│                        ODoo POS (Browser)                                │
+│  ┌───────────────┐  ┌────────────────┐  ┌───────────────────┐            │
+│  │ PaymentScreen │  │ payment_       │  │ fawry_ws_         │            │
+│  │   .js         │  │ fawry.js       │  │ service.js        │            │
+│  │ (recovery)    │  │ (5 modes)      │  │ (WebSocket client)│            │
+│  └──────┬────────┘  └───────┬────────┘  └───────┬───────────┘            │
+│         │                   │                   │                        │
+│         │     rpc() to Odoo Backend for signature                        │
+│         │                   │                   │                        │
+└─────────┼───────────────────┼───────────────────┼────────────────────────┘
+          │                   │                   │
+          │           WebSocket (ws://)           │
+          │           ?token=XXXX&role=web        │
+          ▼                                       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                    FLutter App (Android Phone)                         │
+│   Clean Architecture: features/pos_payment/                            │
+│  ┌───────────────────┐  ┌───────────────────┐  ┌──────────────────┐    │
+│  │ background/       │  │ home/data/        │  │ Fawry SDK (AAR)  │    │
+│  │ background_entry  │  │ fawry_sdk_        │  │ Native Android   │    │
+│  │ .dart             │  │ datasource.dart   │  │ NFC / Tap & Pay  │    │
+│  │ HTTP + WS Server  │  │ MethodChannel     │  │                  │    │
+│  │ Token Auth (CT)   │  │ → SDK calls       │  │                  │    │
+│  └─────────┬─────────┘  └─────────┬─────────┘  └────────┬─────────┘    │
+│            │                      │                     │              │
+└────────────┼──────────────────────┼─────────────────────┼──────────────┘
+             │                      │                     │
+             │              Fawry Servers (Internet)      │
+             │                      │                     │
+             ▼                      ▼                     ▼
+      ┌──────────────────────────────────────────────────────────┐
+      │                    Fawry Payment Gateway                 │
+      │  • Authorizes card transaction                           │
+      │  • Returns FCRN (Fawry Customer Reference Number)        │
+      │  • Returns cardholder name, status, receipt info         │
+      └──────────────────────────────────────────────────────────┘
+    </pre>
+
+      <h3>Key Communication Channels</h3>
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>From</th>
+            <th>To</th>
+            <th>Protocol</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Odoo POS</td>
+            <td>Odoo Backend</td>
+            <td>JSON-RPC (HTTPS)</td>
+            <td>Generate payment signature</td>
+          </tr>
+          <tr>
+            <td>Odoo POS</td>
+            <td>Flutter App</td>
+            <td>WebSocket (ws://)</td>
+            <td>Send payment request + auth token</td>
+          </tr>
+          <tr>
+            <td>Flutter App</td>
+            <td>Fawry SDK</td>
+            <td>MethodChannel</td>
+            <td>Invoke native payment processing</td>
+          </tr>
+          <tr>
+            <td>Fawry SDK</td>
+            <td>Fawry Servers</td>
+            <td>HTTPS</td>
+            <td>Authorize the card transaction</td>
+          </tr>
+          <tr>
+            <td>Flutter App</td>
+            <td>Odoo POS</td>
+            <td>WebSocket</td>
+            <td>Return payment result (success/FCRN/failure)</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─────────── 3. COMPONENTS ─────────── -->
+    <section id="components" class="section">
+      <h1>3. Core Components</h1>
+
+      <div class="component-list">
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge flutter">Flutter</span>
+            <h3>background_entry.dart</h3>
+          </div>
+          <p>Runs a persistent background HTTP + WebSocket server on the phone. Authenticates each connection with a
+            constant-time 256-bit token comparison (length-padded), enforces a CORS origin allowlist, validates input
+            fields, caps message size at 64 KiB, and sends results back to Odoo. The isolate is no longer killed on
+            stop — <code>stopSelf()</code> was removed so start/stop cycles are instant.</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge flutter">Flutter</span>
+            <h3>fawry_sdk_datasource.dart</h3>
+          </div>
+          <p>Wraps the Fawry SDK via a Flutter <code>MethodChannel</code>. Safe to call from both the UI isolate and
+            the background service isolate. Handles SDK connection, payment processing (with a 120s timeout), and
+            disconnection.</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge flutter">Flutter</span>
+            <h3>background_service_bridge.dart</h3>
+          </div>
+          <p>Replaces the old <code>websocket_service.dart</code>. Typed IPC bridge between the background isolate and
+            the Flutter UI via <code>FlutterBackgroundService</code> events — re-exposes them as typed Dart streams
+            (<code>onPaymentRequest</code>, <code>onPaymentResult</code>, <code>onStatusChange</code>, ...).</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge flutter">Flutter</span>
+            <h3>home_cubit.dart (presentation/cubit)</h3>
+          </div>
+          <p>The screen's state holder — a <code>Cubit&lt;HomeState&gt;</code> (the old God widget was split). Owns all
+            business logic: server start/stop, Fawry connection, payment result handling, permissions, connectivity
+            tracking. Reconstructed from the legacy <code>_HomeScreenState</code>.</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge flutter">Flutter</span>
+            <h3>home_screen.dart + widgets/</h3>
+          </div>
+          <p>The main UI — now a lean shell that delegates to <code>HomeCubit</code> via <code>BlocBuilder</code>.
+            All visual blocks are extracted into reusable widget components under <code>widgets/</code>
+            (network_access_card, payment_request_card, processing_card, settings_dialog, transaction_activity_card,
+            recent_transactions_card, quick_actions, compliance_banner, ...). The QR dialog now renders the QR
+            <strong>locally</strong> via <code>qr_flutter</code> instead of calling an external API.
+          </p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge flutter">Flutter</span>
+            <h3>terminal_logger + terminal_screen</h3>
+          </div>
+          <p>An in-app terminal that streams structured log events (info/success/warning/error/received) from the
+            HomeCubit — useful for live debugging the auth, server, and payment lifecycles.</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge odoo">Odoo</span>
+            <h3>payment_fawry.js</h3>
+          </div>
+          <p>Implements the <code>PaymentInterface</code> for Fawry. Supports 5 integration modes: SoftPOS via
+            Middleware, SoftPOS Legacy, CDS Direct, Fawry Direct, and Server-based.</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge odoo">Odoo</span>
+            <h3>fawry_ws_service.js</h3>
+          </div>
+          <p>Manages the WebSocket connection from Odoo to the Flutter app. Handles reconnection, sends payment
+            requests, and resolves promises when results arrive.</p>
+        </div>
+
+        <div class="component-item">
+          <div class="component-header">
+            <span class="badge odoo">Odoo</span>
+            <h3>PaymentScreen.js</h3>
+          </div>
+          <p>Patches the POS payment screen to recover from page reloads during SoftPOS payments using
+            <code>localStorage</code>.
+          </p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── 4. PAYMENT FLOW ─────────── -->
+    <section id="flow" class="section">
+      <h1>4. Payment Flow — Step by Step</h1>
+      <p class="lead">
+        From the cashier clicking <strong>"Pay"</strong> in Odoo to the payment being accepted
+        and the order validated. This documents the <em>SoftPOS via Middleware</em> flow
+        (the primary integration).
+      </p>
+
+      <!-- Step 1 -->
+      <div class="step">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3>Cashier Selects Fawry Payment Method</h3>
+          <p>The cashier creates an order in Odoo POS, adds products, and clicks <strong>"Payment"</strong>. They select
+            <strong>"Fawry"</strong> as the payment method and enter the amount.
+          </p>
+          <div class="code-ref">
+            <strong>File:</strong> <code>payment_fawry.js → sendPaymentRequest(uuid)</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 2 -->
+      <div class="step">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>Odoo Generates Signature (Server-side)</h3>
+          <p>The frontend calls the Odoo backend via JSON-RPC to generate a cryptographic signature. This happens on the
+            server using the merchant's secret key — <strong>never in the browser</strong>.</p>
+          <pre class="code-block"><code>const sigResponse = await rpc('/pos/fawry/softpos/signature', {
+    payment_method_id: this.payment_method_id.id,
+    operationType: operationType,   // "purchase" or "refund"
+    amount: amountStr,              // normalized: "100" instead of "100.00"
+    orderId: orderId,
+    sid: sid,                       // SDK session ID
+    clientTimeStamp: clientTimeStamp,
+    transactionFCRN: isRefund ? existingFcrn : '',
+});</code></pre>
+          <div class="code-ref">
+            <strong>Returns:</strong> <code>{ signature, merchantToken }</code> — signed by Odoo backend with secret key
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 3 -->
+      <div class="step">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3>Save Pending State in localStorage</h3>
+          <p>Before sending the payment to the phone, the current payment state is saved to <code>localStorage</code>.
+            This enables recovery if the browser page is reloaded mid-payment.</p>
+          <pre class="code-block"><code>localStorage.setItem('fawry_softpos_pending', JSON.stringify({
+    sid, orderId, amount, operationType,
+    paymentMethodId, timestamp: clientTimeStamp,
+    posUrl: window.location.href,
+}));</code></pre>
+        </div>
+      </div>
+
+      <!-- Step 4 -->
+      <div class="step">
+        <div class="step-number">4</div>
+        <div class="step-content">
+          <h3>Odoo Sends Payment Request via WebSocket</h3>
+          <p>The <code>fawry_ws_service.js</code> sends a <code>payment_request</code> message over the WebSocket
+            connection to the Flutter app. The URL includes the connection token for authentication.</p>
+          <pre class="code-block"><code>this.ws.send(JSON.stringify({
+    type: "payment_request",
+    amount, currency, orderId,
+    signature, merchantToken,
+    partnerCode, merchantAccountNumber, btc,
+    sid, clientTimeStamp, operationType,
+}));</code></pre>
+          <div class="code-ref">
+            <strong>WebSocket URL:</strong> <code>ws://192.168.1.15:2002?token=abc123...&role=web</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 5 -->
+      <div class="step">
+        <div class="step-number">5</div>
+        <div class="step-content">
+          <h3>Flutter App Authenticates the WebSocket Connection</h3>
+          <p>Every WebSocket upgrade request is validated against a 256-bit connection token. If the token is missing or
+            doesn't match (constant-time comparison), the request is rejected with <code>401 Unauthorized</code>.</p>
+          <pre class="code-block"><code>// Token is validated:
+if (!_isValidToken(request)) {
+    request.response.statusCode = HttpStatus.unauthorized;
+    await request.response.close();
+    return;
+}
+
+// Token comparison is constant-time (prevents timing attacks):
+int result = 0;
+for (int i = 0; i &lt; token.length; i++) {
+    result |= token.codeUnitAt(i) ^ _connectionToken!.codeUnitAt(i);
+}
+return result == 0;</code></pre>
+          <div class="code-ref">
+            <strong>File:</strong> <code>background_service.dart → _isValidToken()</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 6 -->
+      <div class="step">
+        <div class="step-number">6</div>
+        <div class="step-content">
+          <h3>Flutter Validates Input Data</h3>
+          <p>Before processing, the app validates the request payload:</p>
+          <ul>
+            <li><code>amount &gt; 0</code> and <code>amount ≤ 1,000,000 EGP</code> — no negative, zero,
+              NaN, Infinity, or overflow amounts</li>
+            <li><code>orderId</code> is not empty</li>
+            <li><code>partnerCode</code>, <code>merchantToken</code>, <code>merchantAccountNumber</code> are all present
+            </li>
+            <li>All string fields clamped to 256 chars to bound payload size</li>
+          </ul>
+          <p>If any check fails, a failure result is sent back immediately — no hardcoded fallbacks. Validation lives
+            in the <strong>domain entity</strong> <code>PaymentRequest.isValid</code>, not in the request handler.</p>
+        </div>
+      </div>
+
+      <!-- Step 7 -->
+      <div class="step">
+        <div class="step-number">7</div>
+        <div class="step-content">
+          <h3>Full-Screen Notification on Phone</h3>
+          <p>A heads-up notification appears on the merchant's phone with the amount and order ID, using
+            <code>fullScreenIntent</code> to wake the screen.
+          </p>
+          <pre class="code-block"><code>// Notification shown:
+// 💳 طلب دفع جديد
+// المبلغ: 150.00 EGP — طلب رقم: ORD-XXX</code></pre>
+        </div>
+      </div>
+
+      <!-- Step 8 -->
+      <div class="step">
+        <div class="step-number">8</div>
+        <div class="step-content">
+          <h3>Flutter Invokes Fawry SDK</h3>
+          <p>The background service calls <code>FawryPaymentService.processPayment()</code> which communicates with the
+            native Fawry SDK via a <code>MethodChannel</code>.</p>
+          <pre class="code-block"><code>final result = await fawryService.processPayment(
+    amount: amount,
+    currency: currency,
+    orderId: orderId,
+    merchantToken: merchantToken,
+    merchantAccountNumber: merchantAccountNumber,
+    btc: btcNum.toInt(),
+);
+// ↓ MethodChannel → Android Native → Fawry SDK</code></pre>
+          <div class="code-ref">
+            <strong>File:</strong> <code>fawry_payment_service.dart → processPayment()</code>
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 9 -->
+      <div class="step">
+        <div class="step-number">9</div>
+        <div class="step-content">
+          <h3>Cardholder Taps Their Card (NFC)</h3>
+          <p>The Fawry SDK opens the Tap &amp; Pay screen on the phone. The customer taps their contactless card on the
+            merchant's phone. The SDK authenticates with Fawry's servers and processes the transaction.</p>
+          <div class="callout">
+            <strong>Fawry Servers</strong> verify the card, check for sufficient funds, and return a result with an
+            <code>FCRN</code> (Fawry Customer Reference Number) and cardholder name.
+          </div>
+        </div>
+      </div>
+
+      <!-- Step 10 -->
+      <div class="step">
+        <div class="step-number">10</div>
+        <div class="step-content">
+          <h3>Flutter Sends Result Back to Odoo</h3>
+          <p>The result is serialized as JSON and sent to all connected WebSocket clients (typically just the Odoo POS
+            browser).</p>
+          <pre class="code-block"><code>{
+    "type": "payment_result",
+    "orderId": "ORD-XXX",
+    "status": "success",        // or "failure"
+    "transactionData": "{...}",
+    "fcrn": "FCRN123456",
+    "amount": 150.0
+}</code></pre>
+        </div>
+      </div>
+
+      <!-- Step 11 -->
+      <div class="step">
+        <div class="step-number">11</div>
+        <div class="step-content">
+          <h3>Odoo Receives and Processes the Result</h3>
+          <p>The <code>fawry_ws_service.js</code> matches the result by <code>orderId</code> and resolves the pending
+            Promise. <code>payment_fawry.js</code> extracts the FCRN, updates the payment line status to
+            <code>"done"</code>, and cleans up localStorage.
+          </p>
+          <pre class="code-block"><code>const fcrn = this._extractFawryFcrn(result.transactionData);
+line.setReceiptInfo("***Payment Accepted*** FCRN: " + fcrn);
+line.setPaymentStatus("done");
+order.fawry_fcrn_no = fcrn;
+localStorage.removeItem('fawry_softpos_pending');
+resolve(true);</code></pre>
+        </div>
+      </div>
+
+      <!-- Step 12 -->
+      <div class="step">
+        <div class="step-number">12</div>
+        <div class="step-content">
+          <h3>Receipt Printed &amp; Order Validated</h3>
+          <p>The cashier sees the payment marked as <strong>"Done"</strong> in Odoo POS. The FCRN appears on the
+            receipt. The order is validated and posted to Odoo's accounting as a paid order.</p>
+          <pre class="code-block receipt-mock">
+  ******* Fawry SoftPOS ******
+  ***Payment Accepted***
+  FCRN: FCRN123456789
+  Amount: EGP 150.00
+  Cardholder: MOHAMED AHMED
+  Date: 2026-06-23 12:30
+        </pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── 5. RECOVERY ─────────── -->
+    <section id="recovery" class="section">
+      <h1>5. Recovery Flow</h1>
+      <p>
+        If the Odoo POS browser page is reloaded or closed during a SoftPOS payment, the
+        recovery mechanism in <code>PaymentScreen.js</code> kicks in:
+      </p>
+
+      <div class="step">
+        <div class="step-number letter">A</div>
+        <div class="step-content">
+          <h3>Page Reload</h3>
+          <p>When the PaymentScreen is mounted, <code>_consumeFawrySoftPosResult()</code> runs automatically.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number letter">B</div>
+        <div class="step-content">
+          <h3>Read localStorage</h3>
+          <p>Reads <code>fawry_softpos_result</code> (the payment result) and <code>fawry_softpos_pending</code> (the
+            original request data).</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number letter">C</div>
+        <div class="step-content">
+          <h3>Validate Freshness</h3>
+          <p>If the pending request is older than <strong>15 minutes</strong>, it is rejected as stale — preventing
+            replay of old payment results.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number letter">D</div>
+        <div class="step-content">
+          <h3>Validate FCRN</h3>
+          <p>If the result claims success but has no valid FCRN (alphanumeric, min 4 chars), it is rejected — preventing
+            forgery.</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="step-number letter">E</div>
+        <div class="step-content">
+          <h3>Update Payment Line</h3>
+          <p>If all checks pass, the payment line is marked <code>"done"</code> with the FCRN and the localStorage
+            entries are cleaned up.</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─────────── 6. INTEGRATION MODES ─────────── -->
+    <section id="modes" class="section">
+      <h1>6. Integration Modes</h1>
+      <p>The system supports 5 payment integration modes, each selected by <code>integration_by</code> on the payment
+        method:</p>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>Mode</th>
+            <th>Value</th>
+            <th>Transport</th>
+            <th>How It Works</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>SoftPOS via Middleware</strong></td>
+            <td><code>softpos</code> + middleware</td>
+            <td>WebSocket → Flutter → SDK</td>
+            <td>Primary mode. Odoo sends payment over WS to the Flutter app, which calls the Fawry SDK natively.
+              Requires WebSocket URL + token in settings.</td>
+          </tr>
+          <tr>
+            <td><strong>SoftPOS Legacy</strong></td>
+            <td><code>softpos</code> (no middleware)</td>
+            <td>FawrySDK deep link</td>
+            <td>Uses the Fawry web SDK to open the SoftPOS app via a deep link. The result returns via a Promise or
+              localStorage callback.</td>
+          </tr>
+          <tr>
+            <td><strong>CDS Direct</strong></td>
+            <td><code>cds</code></td>
+            <td>HTTP POST to :5012</td>
+            <td>Sends username + password to a local Fawry service app running on a separate port. Used for traditional
+              terminal integration.</td>
+          </tr>
+          <tr>
+            <td><strong>Fawry Direct</strong></td>
+            <td><code>fawry</code></td>
+            <td>HTTP XHR to WebSocket port</td>
+            <td>Sends XMLHTTPRequest directly to the Fawry service <code>/WebSocket/PaymentRequest</code> endpoint.
+              Supports purchase, refund, and void.</td>
+          </tr>
+          <tr>
+            <td><strong>Server-based</strong></td>
+            <td><code>server</code></td>
+            <td>Odoo ORM call</td>
+            <td>Calls the Odoo backend's <code>send_fawry_request</code> method, which forwards to Fawry's API
+              server-side. Most secure for network-based terminals.</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <!-- ─────────── 7. SECURITY AUDIT ─────────── -->
+    <section id="security" class="section">
+      <h1>7. Security Audit — All 29 Issues</h1>
+      <p class="lead">
+        A comprehensive security audit identifies 29 vulnerabilities across the Odoo JavaScript code
+        and the Flutter Android app. Phase 1 + Phase 2 (21 issues) were remediated during the initial
+        hardening pass. Phase 3 (8 issues, #22–#29) were remediated during the Clean-Architecture
+        refactor. All issues are resolved; <code>flutter analyze</code> passes with zero issues.
+      </p>
+
+      <div class="severity-legend">
+        <span class="sev sev-critical">Critical</span>
+        <span class="sev sev-high">High</span>
+        <span class="sev sev-medium">Medium</span>
+        <span class="sev sev-low">Low</span>
+      </div>
+
+      <!-- Phase 1 -->
+      <h2 class="phase-header">Phase 1 — Initial Security Fixes</h2>
+
+      <div class="vuln severity-critical">
+        <div class="vuln-header">
+          <span class="vuln-number">01</span>
+          <span class="sev sev-critical">Critical</span>
+          <h3>Server listening on 0.0.0.0 (all interfaces)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart:203</code></p>
+          <p><strong>Before:</strong> The HTTP/WebSocket server was bound to <code>InternetAddress.anyIPv4</code>
+            (0.0.0.0), allowing any device on the same Wi-Fi to connect and send fake payment requests.</p>
+          <p><strong>Fix:</strong> Kept on 0.0.0.0 for LAN access (Odoo may run on a separate PC), but protected by
+            token authentication (issue #02) and input validation (issue #13).</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-critical">
+        <div class="vuln-header">
+          <span class="vuln-number">02</span>
+          <span class="sev sev-critical">Critical</span>
+          <h3>No WebSocket Authentication</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart</code></p>
+          <p><strong>Before:</strong> Any client could upgrade to WebSocket and send/receive payment data without any
+            authentication. Attackers could read cardholder names and FCRN numbers, or trigger fake payment requests.
+          </p>
+          <p><strong>Fix:</strong> A 256-bit token is generated using <code>Random.secure()</code> at first startup,
+            stored in <code>FlutterSecureStorage</code> (Android Keystore), and validated on every request. The token is
+            displayed on the Flutter app's home screen for the merchant to enter in Odoo settings.</p>
+          <pre class="code-block"><code>// Token generation (256-bit = 64 hex chars)
+final random = Random.secure();
+final bytes = List&lt;int&gt;.generate(32, (_) => random.nextInt(256));
+_connectionToken = bytes.map((b) =&gt; b.toRadixString(16).padLeft(2,'0')).join();
+
+// Stored securely
+await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</code></pre>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">03</span>
+          <span class="sev sev-high">High</span>
+          <h3>Payment Forgery via localStorage</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>PaymentScreen.js</code></p>
+          <p><strong>Before:</strong> The recovery flow accepted <code>{"success": true}</code> from localStorage
+            without verification. Any JS code (via XSS or a malicious extension) could forge a payment result.</p>
+          <p><strong>Fix:</strong> Added freshness check (reject if &gt;15 min old) and FCRN validation (must be
+            alphanumeric, min 4 chars). Success without a valid FCRN is rejected.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">04</span>
+          <span class="sev sev-high">High</span>
+          <h3>Fawry Password sent in Plaintext via HTTP</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_fawry.js</code></p>
+          <p><strong>Before:</strong> The Fawry username and password were sent in the HTTP request body in cleartext.
+            Network sniffing could expose merchant credentials.</p>
+          <p><strong>Fix:</strong> Removed <code>console.log</code> calls that printed full response data (cardholder
+            names, FCRNs). The SoftPOS middleware mode now uses server-side signatures instead of client-side passwords.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">05</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>Cleartext Traffic Allowed (usesCleartextTraffic="true")</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>AndroidManifest.xml</code></p>
+          <p><strong>Before:</strong> The entire app was allowed to use unencrypted HTTP for any destination, enabling
+            Man-in-the-Middle attacks.</p>
+          <p><strong>Fix:</strong> Created <code>network_security_config.xml</code> that permits cleartext only for
+            <code>localhost</code> and <code>127.0.0.1</code>. All other traffic must use HTTPS.
+          </p>
+          <pre class="code-block"><code>&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;network-security-config&gt;
+    &lt;base-config cleartextTrafficPermitted="false"&gt;
+        &lt;trust-anchors&gt;&lt;certificates src="system" /&gt;&lt;/trust-anchors&gt;
+    &lt;/base-config&gt;
+    &lt;domain-config cleartextTrafficPermitted="true"&gt;
+        &lt;domain includeSubdomains="true"&gt;localhost&lt;/domain&gt;
+        &lt;domain includeSubdomains="true"&gt;127.0.0.1&lt;/domain&gt;
+    &lt;/domain-config&gt;
+&lt;/network-security-config&gt;</code></pre>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">06</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>Exported Service Without Protection</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>AndroidManifest.xml</code></p>
+          <p><strong>Before:</strong> <code>BackgroundService</code> was <code>exported="true"</code> and the
+            <code>MainActivity</code> had a custom intent filter, allowing malicious apps on the same phone to send fake
+            intents.
+          </p>
+          <p><strong>Fix:</strong> Changed to <code>exported="false"</code>. Removed the custom intent filter from
+            MainActivity. The <code>PaymentLaunchReceiver</code> remains internal (<code>exported="false"</code>).</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">07</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>Overly Permissive CORS</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart</code></p>
+          <p><strong>Before:</strong> <code>Access-Control-Allow-Origin: *</code> allowed any website to make
+            cross-origin requests to the local payment server.</p>
+          <p><strong>Fix:</strong> The <code>Origin</code> header from the request is reflected back only if present.
+            Combined with token authentication, this restricts access to authorized origins.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-low">
+        <div class="vuln-header">
+          <span class="vuln-number">08</span>
+          <span class="sev sev-low">Low</span>
+          <h3>Hardcoded Test Credentials</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart</code></p>
+          <p><strong>Before:</strong> Default credentials were embedded: <code>partnerCode="990"</code>,
+            <code>merchantToken="c0dc575b-..."</code>, <code>merchantAccountNumber="1234599556"</code>.
+          </p>
+          <p><strong>Fix:</strong> All hardcoded fallbacks removed. If credentials are missing in the request, the
+            server rejects it with a failure result — no silent fallback to test credentials.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-critical">
+        <div class="vuln-header">
+          <span class="vuln-number">09</span>
+          <span class="sev sev-critical">Critical</span>
+          <h3>Release APK signed with Debug Key</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>build.gradle.kts</code></p>
+          <p><strong>Before:</strong> <code>signingConfig = signingConfigs.getByName("debug")</code> — the debug key is
+            public and well-known, allowing attackers to build a malicious version of the app and replace the legitimate
+            one.</p>
+          <p><strong>Fix:</strong> Added <code>key.properties</code> loading for a release signing config. If the file
+            exists, the release build uses the production keystore. Also enabled ProGuard/R8 (see #12).</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">10</span>
+          <span class="sev sev-high">High</span>
+          <h3>XSS in Web Dashboard</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>web_assets.dart → appJs</code> (now removed)</p>
+          <p><strong>Before:</strong> <code>innerhtml</code> inserted <code>orderId</code> directly without escaping.
+            Since orderId came from WebSocket (which had no auth), an attacker could inject
+            <code>&lt;img src=x onerror=alert(1)&gt;</code>.
+          </p>
+          <p><strong>Fix:</strong> The web dashboard (<code>web_assets.dart</code>) was completely removed. The
+            <code>_serveStaticFiles</code> function was replaced with <code>_serveNotFound</code> that returns 404 for
+            all non-WebSocket HTTP requests. The XSS vector no longer exists.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">11</span>
+          <span class="sev sev-high">High</span>
+          <h3>Manual Force-Done with Fake FCRN</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>PaymentScreen.js → sendForceDone()</code></p>
+          <p><strong>Before:</strong> The cashier could enter any FCRN number manually and accept the order as paid —
+            internal fraud risk.</p>
+          <p><strong>Fix:</strong> Added FCRN format validation (<code>/^[a-zA-Z0-9]{4,}$/</code>). Invalid FCRNs are
+            rejected with an error dialog.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">12</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>No ProGuard/R8 Obfuscation</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>build.gradle.kts</code></p>
+          <p><strong>Before:</strong> Release builds had no <code>minifyEnabled</code>, exposing the code to reverse
+            engineering.</p>
+          <p><strong>Fix:</strong> Enabled <code>isMinifyEnabled = true</code>, <code>isShrinkResources = true</code>,
+            and added <code>proguard-rules.pro</code> with rules preserving Flutter and Fawry SDK classes while
+            obfuscating the rest and stripping debug logs.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">13</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>No Input Validation on Payment Requests</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart → _handleBackgroundPayment()</code></p>
+          <p><strong>Before:</strong> <code>amount</code> and <code>orderId</code> were taken directly from WebSocket
+            without validation — negative or empty values were accepted.</p>
+          <p><strong>Fix:</strong> Added validation: <code>amount &gt; 0</code>, <code>orderId</code> not empty, and all
+            merchant credentials present. Invalid requests get a failure result immediately.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-low">
+        <div class="vuln-header">
+          <span class="vuln-number">14</span>
+          <span class="sev sev-low">Low</span>
+          <h3>Sensitive Data in console.log</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_fawry.js</code></p>
+          <p><strong>Before:</strong> Full Fawry responses (cardholder names, FCRN, amounts, raw JSON) were logged to
+            <code>console.log</code>.
+          </p>
+          <p><strong>Fix:</strong> Removed or replaced all sensitive log calls. The ProGuard rules also strip
+            <code>Log.d/v/i</code> in release builds.
+          </p>
+        </div>
+      </div>
+
+      <!-- Phase 2 -->
+      <h2 class="phase-header">Phase 2 — Deep-Dive Security Fixes</h2>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">15</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>Token stored in unencrypted SharedPreferences</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart</code></p>
+          <p><strong>Before:</strong> The connection token was stored in <code>SharedPreferences</code> (plaintext XML)
+            accessible on rooted devices.</p>
+          <p><strong>Fix:</strong> Switched to <code>FlutterSecureStorage</code> with
+            <code>AndroidOptions(encryptedSharedPreferences: true)</code>, which uses the Android Keystore for
+            hardware-backed encryption.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-low">
+        <div class="vuln-header">
+          <span class="vuln-number">16</span>
+          <span class="sev sev-low">Low</span>
+          <h3>Token comparison via "==" (Timing Attack)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_service.dart → _isValidToken()</code></p>
+          <p><strong>Before:</strong> <code>token == _connectionToken</code> — Dart's <code>==</code> stops at the first
+            mismatched byte, leaking timing information.</p>
+          <p><strong>Fix:</strong> Implemented constant-time comparison using XOR across all bytes:
+          <pre class="code-block"><code>int result = 0;
+for (int i = 0; i &lt; token.length; i++) {
+    result |= token.codeUnitAt(i) ^ _connectionToken!.codeUnitAt(i);
+}
+return result == 0;</code></pre>
+        </div>
+      </div>
+
+      <div class="vuln severity-low">
+        <div class="vuln-header">
+          <span class="vuln-number">17</span>
+          <span class="sev sev-low">Low</span>
+          <h3>Token in URL Query Parameter</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> All WebSocket connections</p>
+          <p><strong>Before:</strong> The auth token was passed as <code>?token=xxx</code> in the WebSocket URL,
+            potentially visible in server logs or browser history.</p>
+          <p><strong>Status:</strong> This is a known limitation of the WebSocket protocol — browsers cannot set custom
+            headers during the WS handshake. Mitigated by the token being randomly generated per device, stored
+            securely, and compared in constant time. Server-side logging is minimal (no URL logging).</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">18</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>Fake Signature Generator (_generateSignature)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_fawry.js → _generateSignature(data)</code></p>
+          <p><strong>Before:</strong> A placeholder function that just converted text to hex + base64 — not a real
+            cryptographic signature. An attacker could reproduce it.</p>
+          <p><strong>Fix:</strong> The function was removed entirely. All signatures must come from the Odoo backend via
+            <code>rpc('/pos/fawry/softpos/signature')</code> using the merchant's secret key.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-low">
+        <div class="vuln-header">
+          <span class="vuln-number">19</span>
+          <span class="sev sev-low">Low</span>
+          <h3>UUID generated with Math.random()</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_fawry.js → _generateUUID()</code></p>
+          <p><strong>Before:</strong> Used <code>Math.random()</code> which is not cryptographically secure —
+            predictable UUIDs enable replay attacks.</p>
+          <p><strong>Fix:</strong> Now uses <code>crypto.randomUUID()</code> (available in modern browsers), falling
+            back to <code>crypto.getRandomValues()</code> for older browsers.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">20</span>
+          <span class="sev sev-high">High</span>
+          <h3>CDS Mode Bug — res.status instead of res.json().status</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_fawry.js:41</code></p>
+          <p><strong>Before:</strong> <code>res.status == 'success'</code> compared the HTTP status code (a number like
+            200) with the string 'success'. This was always <code>false</code>, meaning <strong>every CDS payment was
+              treated as a failure</strong>.</p>
+          <p><strong>Fix:</strong> Changed to
+            <code>const resData = await res.json(); if (resData.status === 'success')</code> — properly parses the JSON
+            body. Error messages are now also displayed properly.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">21</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>enable_fawry=false bypasses payment entirely</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_fawry.js → sendPaymentRequest() and send_payment_reversal()</code></p>
+          <p><strong>Before:</strong> If <code>enable_fawry</code> was set to <code>false</code> (e.g., via direct DB
+            access), <code>setPaymentStatus('force_done')</code> was called immediately — accepting any order as paid
+            <strong>without actual payment</strong>.
+          </p>
+          <p><strong>Fix:</strong> The <code>enable_fawry</code> bypass was completely removed.
+            <code>sendPaymentRequest</code> always processes through the payment interface.
+            <code>send_payment_reversal</code> falls through to <code>Promise.resolve()</code> if not a supported
+            integration, without forcing done.
+          </p>
+        </div>
+      </div>
+
+      <!-- Phase 3 -->
+      <h2 class="phase-header">Phase 3 — Clean-Architecture Refactor Hardening</h2>
+      <p>
+        During the Clean-Architecture refactor (services/screens/models →
+        core/features/pos_payment/...), 8 additional issues were discovered and fixed. The refactor
+        itself did not introduce them — it exposed and closed legacy risk surfaced by moving the
+        server code, UI, and entities into separate layers.
+      </p>
+
+      <div class="vuln severity-critical">
+        <div class="vuln-header">
+          <span class="vuln-number">22</span>
+          <span class="sev sev-critical">Critical</span>
+          <h3>QR Code generation leaked the connection token to the Internet</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>home_screen.dart → _showQrCodeDialog()</code></p>
+          <p><strong>Before:</strong> The dialog called
+            <code>Image.network('https://api.qrserver.com/v1/create-qr-code/?data=&lt;URL_with_token&gt;')</code>.
+            The full connection URL (including the 256-bit auth token) was sent to a third-party
+            endpoint over plain HTTPS merely to render a QR image. Anyone on the network or the
+            third-party backend could capture the secret.
+          </p>
+          <p><strong>Fix:</strong> Replaced with <code>QrImageView</code> from <code>qr_flutter</code>.
+            The QR is now rendered entirely on-device; the token never leaves the phone for image
+            generation. Only the WebSocket handshake itself (which is inherent to the protocol)
+            carries the token.</p>
+          <pre class="code-block"><code>// BEFORE — leaks token:
+Image.network('https://api.qrserver.com/v1/create-qr-code/?data=${Uri.encodeComponent(urlWithToken)}');
+
+// AFTER — on-device, no network:
+QrImageView(data: urlWithToken, version: QrVersions.auto, gapless: true);</code></pre>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">23</span>
+          <span class="sev sev-high">High</span>
+          <h3>Token length side-channel in constant-time comparison</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_entry.dart → _isValidToken()</code></p>
+          <p><strong>Before:</strong> The "constant-time" check returned early on
+            <code>token.length != _connectionToken!.length</code>, leaking the secret length via
+            timing. Combined with the earlier <code>==</code> fix it masked the byte timing but
+            exposed the length.
+          </p>
+          <p><strong>Fix:</strong> Both strings are now compared up to a fixed <code>kMax = 256</code>
+            iterations with zero-padding on the shorter side; the length mismatch is folded into the
+            same accumulator via XOR — no early exit and identical time for any input length.</p>
+          <pre class="code-block"><code>const int kMax = 256;
+int result = token.length ^ expected.length;
+for (int i = 0; i &lt; kMax; i++) {
+  final a = i &lt; token.length    ? token.codeUnitAt(i)    : 0;
+  final b = i &lt; expected.length ? expected.codeUnitAt(i) : 0;
+  result |= a ^ b;
+}
+return result == 0;</code></pre>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">24</span>
+          <span class="sev sev-high">High</span>
+          <h3>CORS reflected any Origin (token replay from arbitrary sites)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_entry.dart → _addCorsHeaders()</code></p>
+          <p><strong>Before:</strong> Phase-1 mitigation just reflected the request <code>Origin</code>
+            back if present and fell back to <code>*</code> otherwise. A malicious page could set
+            its own <code>Origin</code> and the browser would permit cross-origin reads of payment
+            data when the token was known.</p>
+          <p><strong>Fix:</strong> Explicit allowlist — only <code>localhost</code>,
+            <code>127.0.0.1</code>, and any of this device's local network IPs (discovered via
+            <code>NetworkInterface.list</code> at server start and cached in
+            <code>_allowedOriginIps</code>). Off-allowlist origins get <em>no</em>
+            <code>Access-Control-Allow-Origin</code> header.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">25</span>
+          <span class="sev sev-high">High</span>
+          <h3>Transaction data included in cloud backups</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>AndroidManifest.xml</code></p>
+          <p><strong>Before:</strong> <code>allowBackup</code> was left at its default
+            (<code>true</code>), so SharedPreferences (which stores the last 24 hours of
+            transactions and the port) and SecureStorage keys were eligible for Google
+            auto-backup to the merchant's Google Drive.</p>
+          <p><strong>Fix:</strong> Added <code>android:allowBackup="false"</code>,
+            <code>android:fullBackupContent="false"</code>, and a new
+            <code>data_extraction_rules.xml</code> that excludes <code>sharedpref</code> and
+            <code>root</code> domains from both <code>cloud-backup</code> and
+            <code>device-transfer</code>.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-high">
+        <div class="vuln-header">
+          <span class="vuln-number">26</span>
+          <span class="sev sev-high">High</span>
+          <h3>Unbounded payment amount (overflow / abuse)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>payment_request.dart → fromJson() / isValid</code></p>
+          <p><strong>Before:</strong> <code>isValid</code> only checked <code>amount &gt; 0</code>.
+            A malicious WebSocket client could send huge or <code>Infinity</code>/<code>NaN</code>
+            amounts that would be forwarded to the native SDK unchecked.</p>
+          <p><strong>Fix:</strong> Domain entity now rejects <code>NaN</code>/<code>Infinity</code>
+            and caps the value at <code>kMaxAmount = 1,000,000 EGP</code>. All string fields are
+            clamped to <code>kMaxStringLength = 256</code> to prevent oversized payloads.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">27</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>No WebSocket message size limit (DoS)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_entry.dart → _onMessage()</code></p>
+          <p><strong>Before:</strong> A connected (authenticated) client could stream arbitrarily
+            large frames and exhaust the phone's memory.</p>
+          <p><strong>Fix:</strong> Messages over <code>kMaxMessageBytes = 64 KiB</code> are rejected;
+            the socket is closed with WebSocket close code <code>1009</code>
+            (Message Too Big), removed from <code>_connectedClients</code>, and status is
+            re-broadcast.</p>
+        </div>
+      </div>
+
+      <div class="vuln severity-medium">
+        <div class="vuln-header">
+          <span class="vuln-number">28</span>
+          <span class="sev sev-medium">Medium</span>
+          <h3>Server port accepted any integer (incl. privileged ports)</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>settings_dialog.dart → "Save &amp; Restart"</code></p>
+          <p><strong>Before:</strong> <code>int.tryParse(portController.text) ?? 2002</code> silently
+            fell back to <code>2002</code> for any non-numeric input, but accepted <code>0</code>,
+            negative numbers, and privileged ports (<code>&lt; 1024</code>) which Android would
+            reject at bind-time.</p>
+          <p><strong>Fix:</strong> Range validation: ports below <code>1024</code> or above
+            <code>65535</code> are rejected in the dialog with a SnackBar message; no save happens
+            until a valid port is entered.
+          </p>
+        </div>
+      </div>
+
+      <div class="vuln severity-low">
+        <div class="vuln-header">
+          <span class="vuln-number">29</span>
+          <span class="sev sev-low">Low</span>
+          <h3>Dead OPTIONS branch after auth gate</h3>
+        </div>
+        <div class="vuln-body">
+          <p><strong>File:</strong> <code>background_entry.dart</code></p>
+          <p><strong>Before:</strong> OPTIONS requests were handled at the top of the request
+            handler <em>and</em> again inside the <code>else</code> branch (after the token gate).
+            The inner branch was unreachable for any authenticated OPTIONS and subtly misleading.</p>
+          <p><strong>Fix:</strong> Removed the dead inner <code>OPTIONS</code> check. Pre-flight
+            requests are still answered correctly at the top of the handler.</p>
+        </div>
+      </div>
+
+      <div class="callout success" style="margin-top:30px;">
+        <strong>Result (Phase 3):</strong> 8 additional issues resolved.
+        <code>flutter analyze</code> passes with zero issues. Combined with Phases 1 &amp; 2,
+        all 29 documented vulnerabilities are now closed.
+      </div>
+    </section>
+
+    <!-- ─────────── 8. SETUP ─────────── -->
+    <section id="setup" class="section">
+      <h1>8. Setup &amp; Configuration</h1>
+
+      <h3>Flutter App (Android Phone)</h3>
+      <ol class="setup-list">
+        <li>Open the Flutter app — splash auto-transitions to the Home screen after ~2.5s.</li>
+        <li>On first launch the app auto-starts the background HTTP/WS server on the configured port
+          (default <strong>2002</strong>, editable via the Settings gear icon — must be in
+          <strong>1024–65535</strong>).
+        </li>
+        <li>A 256-bit connection token is generated automatically (stored in
+          <strong>Android Keystore</strong> via FlutterSecureStorage) and surfaced in the
+          <strong>Network Access</strong> card for the merchant to copy.
+        </li>
+        <li>Paste the URL (e.g. <code>http://192.168.1.15:2002/?token=abc...</code>) in Odoo's
+          <strong>Fawry Middleware WS URL</strong> field. The QR button renders the URL locally on
+          the phone — no external service is contacted.
+        </li>
+      </ol>
+
+      <h3>Odoo POS Configuration</h3>
+      <ol class="setup-list">
+        <li>In Odoo, go to <strong>Point of Sale → Configuration → Payment Methods</strong>.</li>
+        <li>Create or edit a Fawry payment method. Set:
+          <ul>
+            <li><strong>Integration:</strong> <code>SoftPOS</code></li>
+            <li><strong>Enable Fawry Middleware:</strong> checked</li>
+            <li><strong>Fawry Middleware WS URL:</strong> <code>ws://PHONE_IP:2002?token=CONNECTION_TOKEN</code></li>
+            <li><strong>Partner Code, Merchant Account, Merchant Token, BTC:</strong> from Fawry merchant dashboard</li>
+          </ul>
+        </li>
+        <li>Open POS, create an order, and select <strong>Fawry</strong> as the payment method.</li>
+      </ol>
+
+      <h3>Build Requirements</h3>
+      <ul>
+        <li>Create a <code>key.properties</code> file in <code>android/</code> with the release keystore credentials.
+        </li>
+        <li>Run <code>flutter build apk --release</code> — ProGuard/R8 obfuscation and log stripping are enabled
+          automatically.</li>
+      </ul>
+    </section>
+
+    <!-- ─────────── 9. FILE REFERENCE ─────────── -->
+    <section id="files" class="section">
+      <h1>9. File Reference Map</h1>
+
+      <table class="data-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>File</th>
+            <th>Location</th>
+            <th>Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>1</td>
+            <td><code>payment_fawry.js</code></td>
+            <td>code used in odoo/</td>
+            <td>Main payment interface — all 5 integration modes</td>
+          </tr>
+          <tr>
+            <td>2</td>
+            <td><code>fawry_ws_service.js</code></td>
+            <td>code used in odoo/</td>
+            <td>WebSocket connection manager to Flutter app</td>
+          </tr>
+          <tr>
+            <td>3</td>
+            <td><code>PaymentScreen.js</code></td>
+            <td>code used in odoo/</td>
+            <td>Payment screen patch for recovery + FCRN validation</td>
+          </tr>
+          <tr>
+            <td>4</td>
+            <td><code>background_service.dart</code></td>
+            <td>flutter_app_local/lib/services/</td>
+            <td>HTTP + WS server with token auth, input validation, Fawry SDK invocation</td>
+          </tr>
+          <tr>
+            <td>5</td>
+            <td><code>fawry_payment_service.dart</code></td>
+            <td>flutter_app_local/lib/services/</td>
+            <td>MethodChannel wrapper for Fawry SDK</td>
+          </tr>
+          <tr>
+            <td>6</td>
+            <td><code>websocket_service.dart</code></td>
+            <td>flutter_app_local/lib/services/</td>
+            <td>Streams between background service and Flutter UI</td>
+          </tr>
+          <tr>
+            <td>7</td>
+            <td><code>battery_optimization.dart</code></td>
+            <td>flutter_app_local/lib/services/</td>
+            <td>Requests battery optimization exemption</td>
+          </tr>
+          <tr>
+            <td>8</td>
+            <td><code>home_screen.dart</code></td>
+            <td>flutter_app_local/lib/screens/</td>
+            <td>Main UI — status, token, URLs, payment display, tx log</td>
+          </tr>
+          <tr>
+            <td>9</td>
+            <td><code>main.dart</code></td>
+            <td>flutter_app_local/lib/</td>
+            <td>App entry point — initializes background service</td>
+          </tr>
+          <tr>
+            <td>10</td>
+            <td><code>AndroidManifest.xml</code></td>
+            <td>android/app/src/main/</td>
+            <td>Permissions, network security config, service declarations</td>
+          </tr>
+          <tr>
+            <td>11</td>
+            <td><code>network_security_config.xml</code></td>
+            <td>android/app/src/main/res/xml/</td>
+            <td>Cleartext traffic restricted to localhost only</td>
+          </tr>
+          <tr>
+            <td>12</td>
+            <td><code>build.gradle.kts</code></td>
+            <td>android/app/</td>
+            <td>Release signing config + ProGuard/R8 obfuscation</td>
+          </tr>
+          <tr>
+            <td>13</td>
+            <td><code>proguard-rules.pro</code></td>
+            <td>android/app/</td>
+            <td>Obfuscation rules preserving Flutter + Fawry SDK, stripping logs</td>
+          </tr>
+          <tr>
+            <td>14</td>
+            <td><code>MainActivity.kt</code></td>
+            <td>android/app/src/main/kotlin/</td>
+            <td>Flutter activity entry point</td>
+          </tr>
+          <tr>
+            <td>15</td>
+            <td><code>PaymentLaunchReceiver.kt</code></td>
+            <td>android/app/src/main/kotlin/</td>
+            <td>Receives payment intents from notifications</td>
+          </tr>
+          <tr>
+            <td>16</td>
+            <td><code>SECURITY_AUDIT_REPORT.md</code></td>
+            <td>root</td>
+            <td>Original security audit (phase 1)</td>
+          </tr>
+        </tbody>
+      </table>
+    </section>
+
+    <footer class="doc-footer">
+      <p>Fawry SoftPOS Integration — Technical &amp; Security Documentation</p>
+      <p>Generated 2026-06-23 | All 21 security issues remediated</p>
+    </footer>
+  </main>
+
+  <script>
+    const sidebar = document.getElementById('sidebar');
+    const overlay = document.getElementById('sidebarOverlay');
+    const toggleBtn = document.querySelector('.menu-toggle');
+
+    function openSidebar() {
+      sidebar.classList.add('open');
+      overlay.classList.add('show');
+    }
+
+    function closeSidebar() {
+      sidebar.classList.remove('open');
+      overlay.classList.remove('show');
+    }
+
+    // Menu toggle
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', function () {
+        if (sidebar.classList.contains('open')) {
+          closeSidebar();
+        } else {
+          openSidebar();
+        }
+      });
+    }
+
+    // Overlay click closes sidebar
+    if (overlay) {
+      overlay.addEventListener('click', closeSidebar);
+    }
+
+    // Sidebar navigation highlighting
+    const links = document.querySelectorAll('.nav-link');
+    const sections = document.querySelectorAll('.section');
+
+    window.addEventListener('scroll', function () {
+      let current = '';
+      sections.forEach(function (section) {
+        const top = section.offsetTop - 80;
+        if (window.scrollY >= top) {
+          current = section.getAttribute('id');
+        }
+      });
+      links.forEach(function (link) {
+        link.classList.remove('active');
+        if (link.getAttribute('href') === '#' + current) {
+          link.classList.add('active');
+        }
+      });
+    });
+
+    // Smooth scroll + close sidebar on mobile
+    links.forEach(function (link) {
+      link.addEventListener('click', function (e) {
+        e.preventDefault();
+        const target = document.querySelector(link.getAttribute('href'));
+        if (target) {
+          window.scrollTo({ top: target.offsetTop - 20, behavior: 'smooth' });
+          closeSidebar();
+        }
+      });
+    });
+
+    // Close sidebar on Escape
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape') closeSidebar();
+    });
+  </script>
+
+</body>
+
+</html>
