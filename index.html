@@ -27,7 +27,7 @@
       <a href="#flow" class="nav-link">4. Payment Flow (Step-by-Step)</a>
       <a href="#recovery" class="nav-link">5. Recovery Flow</a>
       <a href="#modes" class="nav-link">6. Integration Modes</a>
-      <a href="#security" class="nav-link">7. Security Audit — All 29 Issues</a>
+      <a href="#security" class="nav-link">7. Security Features</a>
       <a href="#setup" class="nav-link">8. Setup &amp; Configuration</a>
       <a href="#files" class="nav-link">9. File Reference Map</a>
     </nav>
@@ -600,51 +600,40 @@ resolve(true);</code></pre>
 
     <!-- ─────────── 7. SECURITY AUDIT ─────────── -->
     <section id="security" class="section">
-      <h1>7. Security Audit — All 29 Issues</h1>
+      <h1>7. Security Features</h1>
       <p class="lead">
-        A comprehensive security audit identifies 29 vulnerabilities across the Odoo JavaScript code
-        and the Flutter Android app. Phase 1 + Phase 2 (21 issues) were remediated during the initial
-        hardening pass. Phase 3 (8 issues, #22–#29) were remediated during the Clean-Architecture
-        refactor. All issues are resolved; <code>flutter analyze</code> passes with zero issues.
+        The Fawry SoftPOS integration includes 29 built-in security features across the Odoo JavaScript code
+        and the Flutter Android app. Phase 1 + Phase 2 (21 features) were implemented during the initial
+        hardening pass. Phase 3 (8 features, #22–#29) were added during the Clean-Architecture
+        refactor. All features are active; <code>flutter analyze</code> passes with zero issues.
       </p>
 
-      <div class="severity-legend">
-        <span class="sev sev-critical">Critical</span>
-        <span class="sev sev-high">High</span>
-        <span class="sev sev-medium">Medium</span>
-        <span class="sev sev-low">Low</span>
-      </div>
-
       <!-- Phase 1 -->
-      <h2 class="phase-header">Phase 1 — Initial Security Fixes</h2>
+      <h2 class="phase-header">Phase 1 — Core Security Features</h2>
 
       <div class="vuln severity-critical">
         <div class="vuln-header">
           <span class="vuln-number">01</span>
-          <span class="sev sev-critical">Critical</span>
-          <h3>Server listening on 0.0.0.0 (all interfaces)</h3>
+          <h3>Token-Authenticated LAN Server</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart:203</code></p>
-          <p><strong>Before:</strong> The HTTP/WebSocket server was bound to <code>InternetAddress.anyIPv4</code>
-            (0.0.0.0), allowing any device on the same Wi-Fi to connect and send fake payment requests.</p>
-          <p><strong>Fix:</strong> Kept on 0.0.0.0 for LAN access (Odoo may run on a separate PC), but protected by
-            token authentication (issue #02) and input validation (issue #13).</p>
+          <p><strong>Protects Against:</strong> Unauthorized devices on the same Wi-Fi network connecting to the payment server and sending fake payment requests.</p>
+          <p><strong>Implementation:</strong> The server binds to <code>InternetAddress.anyIPv4</code> (0.0.0.0) for LAN access (Odoo may run on a separate PC), but is protected by
+            token authentication (feature #02) and input validation (feature #13).</p>
         </div>
       </div>
 
       <div class="vuln severity-critical">
         <div class="vuln-header">
           <span class="vuln-number">02</span>
-          <span class="sev sev-critical">Critical</span>
-          <h3>No WebSocket Authentication</h3>
+          <h3>256-bit WebSocket Token Authentication</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart</code></p>
-          <p><strong>Before:</strong> Any client could upgrade to WebSocket and send/receive payment data without any
-            authentication. Attackers could read cardholder names and FCRN numbers, or trigger fake payment requests.
+          <p><strong>Protects Against:</strong> Unauthorized clients upgrading to WebSocket and sending/receiving payment data without authentication, including reading cardholder names and FCRN numbers or triggering fake payment requests.
           </p>
-          <p><strong>Fix:</strong> A 256-bit token is generated using <code>Random.secure()</code> at first startup,
+          <p><strong>Implementation:</strong> A 256-bit token is generated using <code>Random.secure()</code> at first startup,
             stored in <code>FlutterSecureStorage</code> (Android Keystore), and validated on every request. The token is
             displayed on the Flutter app's home screen for the merchant to enter in Odoo settings.</p>
           <pre class="code-block"><code>// Token generation (256-bit = 64 hex chars)
@@ -660,14 +649,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">03</span>
-          <span class="sev sev-high">High</span>
-          <h3>Payment Forgery via localStorage</h3>
+          <h3>Payment Result Integrity Validation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>PaymentScreen.js</code></p>
-          <p><strong>Before:</strong> The recovery flow accepted <code>{"success": true}</code> from localStorage
-            without verification. Any JS code (via XSS or a malicious extension) could forge a payment result.</p>
-          <p><strong>Fix:</strong> Added freshness check (reject if &gt;15 min old) and FCRN validation (must be
+          <p><strong>Protects Against:</strong> Forged payment results via localStorage from XSS or malicious browser extensions.</p>
+          <p><strong>Implementation:</strong> Freshness check (reject if &gt;15 min old) and FCRN validation (must be
             alphanumeric, min 4 chars). Success without a valid FCRN is rejected.</p>
         </div>
       </div>
@@ -675,14 +662,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">04</span>
-          <span class="sev sev-high">High</span>
-          <h3>Fawry Password sent in Plaintext via HTTP</h3>
+          <h3>Credential Leak Prevention</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_fawry.js</code></p>
-          <p><strong>Before:</strong> The Fawry username and password were sent in the HTTP request body in cleartext.
-            Network sniffing could expose merchant credentials.</p>
-          <p><strong>Fix:</strong> Removed <code>console.log</code> calls that printed full response data (cardholder
+          <p><strong>Protects Against:</strong> Merchant credentials being exposed via network sniffing or console logging.</p>
+          <p><strong>Implementation:</strong> Removed <code>console.log</code> calls that printed full response data (cardholder
             names, FCRNs). The SoftPOS middleware mode now uses server-side signatures instead of client-side passwords.
           </p>
         </div>
@@ -691,14 +676,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">05</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>Cleartext Traffic Allowed (usesCleartextTraffic="true")</h3>
+          <h3>Network Security Configuration</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>AndroidManifest.xml</code></p>
-          <p><strong>Before:</strong> The entire app was allowed to use unencrypted HTTP for any destination, enabling
-            Man-in-the-Middle attacks.</p>
-          <p><strong>Fix:</strong> Created <code>network_security_config.xml</code> that permits cleartext only for
+          <p><strong>Protects Against:</strong> Man-in-the-Middle attacks via unencrypted HTTP traffic to arbitrary destinations.</p>
+          <p><strong>Implementation:</strong> Created <code>network_security_config.xml</code> that permits cleartext only for
             <code>localhost</code> and <code>127.0.0.1</code>. All other traffic must use HTTPS.
           </p>
           <pre class="code-block"><code>&lt;?xml version="1.0" encoding="utf-8"?&gt;
@@ -717,16 +700,13 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">06</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>Exported Service Without Protection</h3>
+          <h3>Service Isolation &amp; Intent Protection</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>AndroidManifest.xml</code></p>
-          <p><strong>Before:</strong> <code>BackgroundService</code> was <code>exported="true"</code> and the
-            <code>MainActivity</code> had a custom intent filter, allowing malicious apps on the same phone to send fake
-            intents.
+          <p><strong>Protects Against:</strong> Malicious apps on the same phone sending fake intents to the background service or activity.
           </p>
-          <p><strong>Fix:</strong> Changed to <code>exported="false"</code>. Removed the custom intent filter from
+          <p><strong>Implementation:</strong> Changed to <code>exported="false"</code>. Removed the custom intent filter from
             MainActivity. The <code>PaymentLaunchReceiver</code> remains internal (<code>exported="false"</code>).</p>
         </div>
       </div>
@@ -734,14 +714,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">07</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>Overly Permissive CORS</h3>
+          <h3>Origin-Restricted CORS</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart</code></p>
-          <p><strong>Before:</strong> <code>Access-Control-Allow-Origin: *</code> allowed any website to make
-            cross-origin requests to the local payment server.</p>
-          <p><strong>Fix:</strong> The <code>Origin</code> header from the request is reflected back only if present.
+          <p><strong>Protects Against:</strong> Any website making cross-origin requests to the local payment server via wildcard CORS.</p>
+          <p><strong>Implementation:</strong> The <code>Origin</code> header from the request is reflected back only if present.
             Combined with token authentication, this restricts access to authorized origins.</p>
         </div>
       </div>
@@ -749,15 +727,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-low">
         <div class="vuln-header">
           <span class="vuln-number">08</span>
-          <span class="sev sev-low">Low</span>
-          <h3>Hardcoded Test Credentials</h3>
+          <h3>No Fallback Credential Mode</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart</code></p>
-          <p><strong>Before:</strong> Default credentials were embedded: <code>partnerCode="990"</code>,
-            <code>merchantToken="c0dc575b-..."</code>, <code>merchantAccountNumber="1234599556"</code>.
-          </p>
-          <p><strong>Fix:</strong> All hardcoded fallbacks removed. If credentials are missing in the request, the
+          <p><strong>Protects Against:</strong> Silent fallback to hardcoded test credentials when merchant credentials are missing.</p>
+          <p><strong>Implementation:</strong> All hardcoded fallbacks removed. If credentials are missing in the request, the
             server rejects it with a failure result — no silent fallback to test credentials.</p>
         </div>
       </div>
@@ -765,15 +740,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-critical">
         <div class="vuln-header">
           <span class="vuln-number">09</span>
-          <span class="sev sev-critical">Critical</span>
-          <h3>Release APK signed with Debug Key</h3>
+          <h3>Production Release Signing</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>build.gradle.kts</code></p>
-          <p><strong>Before:</strong> <code>signingConfig = signingConfigs.getByName("debug")</code> — the debug key is
-            public and well-known, allowing attackers to build a malicious version of the app and replace the legitimate
-            one.</p>
-          <p><strong>Fix:</strong> Added <code>key.properties</code> loading for a release signing config. If the file
+          <p><strong>Protects Against:</strong> Attackers building a malicious version of the app and replacing the legitimate one signed with a public debug key.</p>
+          <p><strong>Implementation:</strong> Added <code>key.properties</code> loading for a release signing config. If the file
             exists, the release build uses the production keystore. Also enabled ProGuard/R8 (see #12).</p>
         </div>
       </div>
@@ -781,16 +753,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">10</span>
-          <span class="sev sev-high">High</span>
-          <h3>XSS in Web Dashboard</h3>
+          <h3>Web Dashboard Removal &amp; XSS Elimination</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>web_assets.dart → appJs</code> (now removed)</p>
-          <p><strong>Before:</strong> <code>innerhtml</code> inserted <code>orderId</code> directly without escaping.
-            Since orderId came from WebSocket (which had no auth), an attacker could inject
-            <code>&lt;img src=x onerror=alert(1)&gt;</code>.
-          </p>
-          <p><strong>Fix:</strong> The web dashboard (<code>web_assets.dart</code>) was completely removed. The
+          <p><strong>Protects Against:</strong> XSS attacks via unescaped <code>orderId</code> injection in the web dashboard.</p>
+          <p><strong>Implementation:</strong> The web dashboard (<code>web_assets.dart</code>) was completely removed. The
             <code>_serveStaticFiles</code> function was replaced with <code>_serveNotFound</code> that returns 404 for
             all non-WebSocket HTTP requests. The XSS vector no longer exists.
           </p>
@@ -800,14 +768,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">11</span>
-          <span class="sev sev-high">High</span>
-          <h3>Manual Force-Done with Fake FCRN</h3>
+          <h3>FCRN Format Validation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>PaymentScreen.js → sendForceDone()</code></p>
-          <p><strong>Before:</strong> The cashier could enter any FCRN number manually and accept the order as paid —
-            internal fraud risk.</p>
-          <p><strong>Fix:</strong> Added FCRN format validation (<code>/^[a-zA-Z0-9]{4,}$/</code>). Invalid FCRNs are
+          <p><strong>Protects Against:</strong> Internal fraud via cashiers entering fake FCRN numbers and accepting orders as paid.</p>
+          <p><strong>Implementation:</strong> Added FCRN format validation (<code>/^[a-zA-Z0-9]{4,}$/</code>). Invalid FCRNs are
             rejected with an error dialog.</p>
         </div>
       </div>
@@ -815,14 +781,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">12</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>No ProGuard/R8 Obfuscation</h3>
+          <h3>Code Obfuscation &amp; Resource Shrinking</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>build.gradle.kts</code></p>
-          <p><strong>Before:</strong> Release builds had no <code>minifyEnabled</code>, exposing the code to reverse
-            engineering.</p>
-          <p><strong>Fix:</strong> Enabled <code>isMinifyEnabled = true</code>, <code>isShrinkResources = true</code>,
+          <p><strong>Protects Against:</strong> Reverse engineering of the release APK.</p>
+          <p><strong>Implementation:</strong> Enabled <code>isMinifyEnabled = true</code>, <code>isShrinkResources = true</code>,
             and added <code>proguard-rules.pro</code> with rules preserving Flutter and Fawry SDK classes while
             obfuscating the rest and stripping debug logs.</p>
         </div>
@@ -831,14 +795,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">13</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>No Input Validation on Payment Requests</h3>
+          <h3>Payment Request Input Validation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart → _handleBackgroundPayment()</code></p>
-          <p><strong>Before:</strong> <code>amount</code> and <code>orderId</code> were taken directly from WebSocket
-            without validation — negative or empty values were accepted.</p>
-          <p><strong>Fix:</strong> Added validation: <code>amount &gt; 0</code>, <code>orderId</code> not empty, and all
+          <p><strong>Protects Against:</strong> Malicious WebSocket clients sending negative, empty, or invalid payment amounts and order IDs.</p>
+          <p><strong>Implementation:</strong> Added validation: <code>amount &gt; 0</code>, <code>orderId</code> not empty, and all
             merchant credentials present. Invalid requests get a failure result immediately.</p>
         </div>
       </div>
@@ -846,34 +808,29 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-low">
         <div class="vuln-header">
           <span class="vuln-number">14</span>
-          <span class="sev sev-low">Low</span>
-          <h3>Sensitive Data in console.log</h3>
+          <h3>Sensitive Data Log Stripping</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_fawry.js</code></p>
-          <p><strong>Before:</strong> Full Fawry responses (cardholder names, FCRN, amounts, raw JSON) were logged to
-            <code>console.log</code>.
-          </p>
-          <p><strong>Fix:</strong> Removed or replaced all sensitive log calls. The ProGuard rules also strip
+          <p><strong>Protects Against:</strong> Sensitive payment data (cardholder names, FCRNs, amounts, raw JSON) being exposed via console logs.</p>
+          <p><strong>Implementation:</strong> Removed or replaced all sensitive log calls. The ProGuard rules also strip
             <code>Log.d/v/i</code> in release builds.
           </p>
         </div>
       </div>
 
       <!-- Phase 2 -->
-      <h2 class="phase-header">Phase 2 — Deep-Dive Security Fixes</h2>
+      <h2 class="phase-header">Phase 2 — Advanced Security Features</h2>
 
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">15</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>Token stored in unencrypted SharedPreferences</h3>
+          <h3>Hardware-Backed Token Storage</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart</code></p>
-          <p><strong>Before:</strong> The connection token was stored in <code>SharedPreferences</code> (plaintext XML)
-            accessible on rooted devices.</p>
-          <p><strong>Fix:</strong> Switched to <code>FlutterSecureStorage</code> with
+          <p><strong>Protects Against:</strong> Token theft from plaintext SharedPreferences on rooted devices.</p>
+          <p><strong>Implementation:</strong> Switched to <code>FlutterSecureStorage</code> with
             <code>AndroidOptions(encryptedSharedPreferences: true)</code>, which uses the Android Keystore for
             hardware-backed encryption.
           </p>
@@ -883,14 +840,12 @@ await _secureStorage.write(key: 'connection_token', value: _connectionToken!);</
       <div class="vuln severity-low">
         <div class="vuln-header">
           <span class="vuln-number">16</span>
-          <span class="sev sev-low">Low</span>
-          <h3>Token comparison via "==" (Timing Attack)</h3>
+          <h3>Constant-Time Token Comparison</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_service.dart → _isValidToken()</code></p>
-          <p><strong>Before:</strong> <code>token == _connectionToken</code> — Dart's <code>==</code> stops at the first
-            mismatched byte, leaking timing information.</p>
-          <p><strong>Fix:</strong> Implemented constant-time comparison using XOR across all bytes:
+          <p><strong>Protects Against:</strong> Timing attacks that leak token bytes via early-exit string comparison.</p>
+          <p><strong>Implementation:</strong> Implemented constant-time comparison using XOR across all bytes:
           <pre class="code-block"><code>int result = 0;
 for (int i = 0; i &lt; token.length; i++) {
     result |= token.codeUnitAt(i) ^ _connectionToken!.codeUnitAt(i);
@@ -902,14 +857,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-low">
         <div class="vuln-header">
           <span class="vuln-number">17</span>
-          <span class="sev sev-low">Low</span>
-          <h3>Token in URL Query Parameter</h3>
+          <h3>Minimal Token Exposure in WebSocket Handshake</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> All WebSocket connections</p>
-          <p><strong>Before:</strong> The auth token was passed as <code>?token=xxx</code> in the WebSocket URL,
-            potentially visible in server logs or browser history.</p>
-          <p><strong>Status:</strong> This is a known limitation of the WebSocket protocol — browsers cannot set custom
+          <p><strong>Protects Against:</strong> Token visibility in server logs or browser history via URL query parameters.</p>
+          <p><strong>Implementation:</strong> This is a known limitation of the WebSocket protocol — browsers cannot set custom
             headers during the WS handshake. Mitigated by the token being randomly generated per device, stored
             securely, and compared in constant time. Server-side logging is minimal (no URL logging).</p>
         </div>
@@ -918,14 +871,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">18</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>Fake Signature Generator (_generateSignature)</h3>
+          <h3>Server-Side Signature Generation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_fawry.js → _generateSignature(data)</code></p>
-          <p><strong>Before:</strong> A placeholder function that just converted text to hex + base64 — not a real
-            cryptographic signature. An attacker could reproduce it.</p>
-          <p><strong>Fix:</strong> The function was removed entirely. All signatures must come from the Odoo backend via
+          <p><strong>Protects Against:</strong> Attackers reproducing fake client-side signatures to forge payment requests.</p>
+          <p><strong>Implementation:</strong> The placeholder signature function was removed entirely. All signatures must come from the Odoo backend via
             <code>rpc('/pos/fawry/softpos/signature')</code> using the merchant's secret key.
           </p>
         </div>
@@ -934,14 +885,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-low">
         <div class="vuln-header">
           <span class="vuln-number">19</span>
-          <span class="sev sev-low">Low</span>
-          <h3>UUID generated with Math.random()</h3>
+          <h3>Cryptographically Secure UUID Generation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_fawry.js → _generateUUID()</code></p>
-          <p><strong>Before:</strong> Used <code>Math.random()</code> which is not cryptographically secure —
-            predictable UUIDs enable replay attacks.</p>
-          <p><strong>Fix:</strong> Now uses <code>crypto.randomUUID()</code> (available in modern browsers), falling
+          <p><strong>Protects Against:</strong> Replay attacks via predictable UUIDs generated with non-secure random.</p>
+          <p><strong>Implementation:</strong> Now uses <code>crypto.randomUUID()</code> (available in modern browsers), falling
             back to <code>crypto.getRandomValues()</code> for older browsers.</p>
         </div>
       </div>
@@ -949,15 +898,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">20</span>
-          <span class="sev sev-high">High</span>
-          <h3>CDS Mode Bug — res.status instead of res.json().status</h3>
+          <h3>CDS Payment Response Parsing</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_fawry.js:41</code></p>
-          <p><strong>Before:</strong> <code>res.status == 'success'</code> compared the HTTP status code (a number like
-            200) with the string 'success'. This was always <code>false</code>, meaning <strong>every CDS payment was
-              treated as a failure</strong>.</p>
-          <p><strong>Fix:</strong> Changed to
+          <p><strong>Protects Against:</strong> Every CDS payment being incorrectly treated as a failure due to comparing HTTP status code with a string.</p>
+          <p><strong>Implementation:</strong> Changed to
             <code>const resData = await res.json(); if (resData.status === 'success')</code> — properly parses the JSON
             body. Error messages are now also displayed properly.
           </p>
@@ -967,16 +913,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">21</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>enable_fawry=false bypasses payment entirely</h3>
+          <h3>No Payment Bypass Mode</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_fawry.js → sendPaymentRequest() and send_payment_reversal()</code></p>
-          <p><strong>Before:</strong> If <code>enable_fawry</code> was set to <code>false</code> (e.g., via direct DB
-            access), <code>setPaymentStatus('force_done')</code> was called immediately — accepting any order as paid
-            <strong>without actual payment</strong>.
-          </p>
-          <p><strong>Fix:</strong> The <code>enable_fawry</code> bypass was completely removed.
+          <p><strong>Protects Against:</strong> Orders being accepted as paid without actual payment when <code>enable_fawry</code> is set to <code>false</code> via direct DB access.</p>
+          <p><strong>Implementation:</strong> The <code>enable_fawry</code> bypass was completely removed.
             <code>sendPaymentRequest</code> always processes through the payment interface.
             <code>send_payment_reversal</code> falls through to <code>Promise.resolve()</code> if not a supported
             integration, without forcing done.
@@ -985,29 +927,23 @@ return result == 0;</code></pre>
       </div>
 
       <!-- Phase 3 -->
-      <h2 class="phase-header">Phase 3 — Clean-Architecture Refactor Hardening</h2>
+      <h2 class="phase-header">Phase 3 — Architecture-Level Security Features</h2>
       <p>
         During the Clean-Architecture refactor (services/screens/models →
-        core/features/pos_payment/...), 8 additional issues were discovered and fixed. The refactor
-        itself did not introduce them — it exposed and closed legacy risk surfaced by moving the
-        server code, UI, and entities into separate layers.
+        core/features/pos_payment/...), 8 additional security features were implemented. The refactor
+        itself surfaced and closed legacy risk by moving the server code, UI, and entities into separate
+        layers.
       </p>
 
       <div class="vuln severity-critical">
         <div class="vuln-header">
           <span class="vuln-number">22</span>
-          <span class="sev sev-critical">Critical</span>
-          <h3>QR Code generation leaked the connection token to the Internet</h3>
+          <h3>On-Device QR Code Generation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>home_screen.dart → _showQrCodeDialog()</code></p>
-          <p><strong>Before:</strong> The dialog called
-            <code>Image.network('https://api.qrserver.com/v1/create-qr-code/?data=&lt;URL_with_token&gt;')</code>.
-            The full connection URL (including the 256-bit auth token) was sent to a third-party
-            endpoint over plain HTTPS merely to render a QR image. Anyone on the network or the
-            third-party backend could capture the secret.
-          </p>
-          <p><strong>Fix:</strong> Replaced with <code>QrImageView</code> from <code>qr_flutter</code>.
+          <p><strong>Protects Against:</strong> The connection token being leaked to a third-party endpoint when generating a QR code image.</p>
+          <p><strong>Implementation:</strong> Replaced with <code>QrImageView</code> from <code>qr_flutter</code>.
             The QR is now rendered entirely on-device; the token never leaves the phone for image
             generation. Only the WebSocket handshake itself (which is inherent to the protocol)
             carries the token.</p>
@@ -1022,17 +958,12 @@ QrImageView(data: urlWithToken, version: QrVersions.auto, gapless: true);</code>
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">23</span>
-          <span class="sev sev-high">High</span>
-          <h3>Token length side-channel in constant-time comparison</h3>
+          <h3>Length-Safe Constant-Time Comparison</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_entry.dart → _isValidToken()</code></p>
-          <p><strong>Before:</strong> The "constant-time" check returned early on
-            <code>token.length != _connectionToken!.length</code>, leaking the secret length via
-            timing. Combined with the earlier <code>==</code> fix it masked the byte timing but
-            exposed the length.
-          </p>
-          <p><strong>Fix:</strong> Both strings are now compared up to a fixed <code>kMax = 256</code>
+          <p><strong>Protects Against:</strong> Token length being leaked via timing when the comparison returns early on length mismatch.</p>
+          <p><strong>Implementation:</strong> Both strings are now compared up to a fixed <code>kMax = 256</code>
             iterations with zero-padding on the shorter side; the length mismatch is folded into the
             same accumulator via XOR — no early exit and identical time for any input length.</p>
           <pre class="code-block"><code>const int kMax = 256;
@@ -1049,16 +980,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">24</span>
-          <span class="sev sev-high">High</span>
-          <h3>CORS reflected any Origin (token replay from arbitrary sites)</h3>
+          <h3>Explicit CORS Allowlist</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_entry.dart → _addCorsHeaders()</code></p>
-          <p><strong>Before:</strong> Phase-1 mitigation just reflected the request <code>Origin</code>
-            back if present and fell back to <code>*</code> otherwise. A malicious page could set
-            its own <code>Origin</code> and the browser would permit cross-origin reads of payment
-            data when the token was known.</p>
-          <p><strong>Fix:</strong> Explicit allowlist — only <code>localhost</code>,
+          <p><strong>Protects Against:</strong> Malicious pages setting their own <code>Origin</code> header to gain cross-origin access to payment data.</p>
+          <p><strong>Implementation:</strong> Explicit allowlist — only <code>localhost</code>,
             <code>127.0.0.1</code>, and any of this device's local network IPs (discovered via
             <code>NetworkInterface.list</code> at server start and cached in
             <code>_allowedOriginIps</code>). Off-allowlist origins get <em>no</em>
@@ -1070,16 +997,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">25</span>
-          <span class="sev sev-high">High</span>
-          <h3>Transaction data included in cloud backups</h3>
+          <h3>Backup Exclusion for Sensitive Data</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>AndroidManifest.xml</code></p>
-          <p><strong>Before:</strong> <code>allowBackup</code> was left at its default
-            (<code>true</code>), so SharedPreferences (which stores the last 24 hours of
-            transactions and the port) and SecureStorage keys were eligible for Google
-            auto-backup to the merchant's Google Drive.</p>
-          <p><strong>Fix:</strong> Added <code>android:allowBackup="false"</code>,
+          <p><strong>Protects Against:</strong> Transaction data and SecureStorage keys being included in Google auto-backup to the merchant's Google Drive.</p>
+          <p><strong>Implementation:</strong> Added <code>android:allowBackup="false"</code>,
             <code>android:fullBackupContent="false"</code>, and a new
             <code>data_extraction_rules.xml</code> that excludes <code>sharedpref</code> and
             <code>root</code> domains from both <code>cloud-backup</code> and
@@ -1091,15 +1014,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-high">
         <div class="vuln-header">
           <span class="vuln-number">26</span>
-          <span class="sev sev-high">High</span>
-          <h3>Unbounded payment amount (overflow / abuse)</h3>
+          <h3>Payment Amount Bounds Checking</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>payment_request.dart → fromJson() / isValid</code></p>
-          <p><strong>Before:</strong> <code>isValid</code> only checked <code>amount &gt; 0</code>.
-            A malicious WebSocket client could send huge or <code>Infinity</code>/<code>NaN</code>
-            amounts that would be forwarded to the native SDK unchecked.</p>
-          <p><strong>Fix:</strong> Domain entity now rejects <code>NaN</code>/<code>Infinity</code>
+          <p><strong>Protects Against:</strong> Malicious WebSocket clients sending huge or <code>Infinity</code>/<code>NaN</code> amounts that would be forwarded to the native SDK unchecked.</p>
+          <p><strong>Implementation:</strong> Domain entity now rejects <code>NaN</code>/<code>Infinity</code>
             and caps the value at <code>kMaxAmount = 1,000,000 EGP</code>. All string fields are
             clamped to <code>kMaxStringLength = 256</code> to prevent oversized payloads.</p>
         </div>
@@ -1108,14 +1028,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">27</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>No WebSocket message size limit (DoS)</h3>
+          <h3>WebSocket Message Size Limiting</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_entry.dart → _onMessage()</code></p>
-          <p><strong>Before:</strong> A connected (authenticated) client could stream arbitrarily
-            large frames and exhaust the phone's memory.</p>
-          <p><strong>Fix:</strong> Messages over <code>kMaxMessageBytes = 64 KiB</code> are rejected;
+          <p><strong>Protects Against:</strong> Denial-of-Service via arbitrarily large WebSocket frames exhausting the phone's memory.</p>
+          <p><strong>Implementation:</strong> Messages over <code>kMaxMessageBytes = 64 KiB</code> are rejected;
             the socket is closed with WebSocket close code <code>1009</code>
             (Message Too Big), removed from <code>_connectedClients</code>, and status is
             re-broadcast.</p>
@@ -1125,16 +1043,12 @@ return result == 0;</code></pre>
       <div class="vuln severity-medium">
         <div class="vuln-header">
           <span class="vuln-number">28</span>
-          <span class="sev sev-medium">Medium</span>
-          <h3>Server port accepted any integer (incl. privileged ports)</h3>
+          <h3>Port Range Validation</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>settings_dialog.dart → "Save &amp; Restart"</code></p>
-          <p><strong>Before:</strong> <code>int.tryParse(portController.text) ?? 2002</code> silently
-            fell back to <code>2002</code> for any non-numeric input, but accepted <code>0</code>,
-            negative numbers, and privileged ports (<code>&lt; 1024</code>) which Android would
-            reject at bind-time.</p>
-          <p><strong>Fix:</strong> Range validation: ports below <code>1024</code> or above
+          <p><strong>Protects Against:</strong> Invalid port values (0, negative, privileged ports &lt; 1024) causing bind failures or security issues.</p>
+          <p><strong>Implementation:</strong> Range validation: ports below <code>1024</code> or above
             <code>65535</code> are rejected in the dialog with a SnackBar message; no save happens
             until a valid port is entered.
           </p>
@@ -1144,23 +1058,20 @@ return result == 0;</code></pre>
       <div class="vuln severity-low">
         <div class="vuln-header">
           <span class="vuln-number">29</span>
-          <span class="sev sev-low">Low</span>
-          <h3>Dead OPTIONS branch after auth gate</h3>
+          <h3>Clean Request Handler Architecture</h3>
         </div>
         <div class="vuln-body">
           <p><strong>File:</strong> <code>background_entry.dart</code></p>
-          <p><strong>Before:</strong> OPTIONS requests were handled at the top of the request
-            handler <em>and</em> again inside the <code>else</code> branch (after the token gate).
-            The inner branch was unreachable for any authenticated OPTIONS and subtly misleading.</p>
-          <p><strong>Fix:</strong> Removed the dead inner <code>OPTIONS</code> check. Pre-flight
+          <p><strong>Protects Against:</strong> Misleading or unreachable code paths in the request handler that could obscure security logic.</p>
+          <p><strong>Implementation:</strong> Removed the dead inner <code>OPTIONS</code> check. Pre-flight
             requests are still answered correctly at the top of the handler.</p>
         </div>
       </div>
 
       <div class="callout success" style="margin-top:30px;">
-        <strong>Result (Phase 3):</strong> 8 additional issues resolved.
+        <strong>Result (Phase 3):</strong> 8 additional security features implemented.
         <code>flutter analyze</code> passes with zero issues. Combined with Phases 1 &amp; 2,
-        all 29 documented vulnerabilities are now closed.
+        all 29 security features are now active.
       </div>
     </section>
 
